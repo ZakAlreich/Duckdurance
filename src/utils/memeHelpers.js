@@ -5,7 +5,6 @@ import OpenAI from 'openai';
 // Fetch activity data from Strava
 export const fetchActivityData = async (activityId) => {
   try {
-    // Get access token from your storage/context
     const accessToken = localStorage.getItem('strava_access_token');
     
     const response = await axios.get(
@@ -15,12 +14,18 @@ export const fetchActivityData = async (activityId) => {
       }
     );
 
+    // Log raw Strava response for debugging
+    console.log('Raw Strava Response:', response.data);
+
     return {
       distance: (response.data.distance / 1000).toFixed(2), // Convert to km
-      time: formatTime(response.data.moving_time),
-      type: response.data.type,
-      averageSpeed: response.data.average_speed,
-      elevationGain: response.data.total_elevation_gain
+      time: formatTime(response.data.moving_time || 0),
+      type: response.data.type || 'Unknown',
+      averageSpeed: response.data.average_speed 
+        ? (response.data.average_speed * 3.6).toFixed(1) // Convert m/s to km/h
+        : 0,
+      elevationGain: Math.round(response.data.total_elevation_gain || 0),
+      description: response.data.description || ''
     };
   } catch (error) {
     console.error('Error fetching activity:', error);
@@ -47,12 +52,13 @@ export const selectDuckPhoto = async (activity, openai) => {
         },
         {
           role: "user",
-          content: `Based on this workout data, what would be the most appropriate emotional state?
+          content: `Based on this workout data and description, what would be the most appropriate emotional state?
             Distance: ${activity.distance}km
             Time: ${activity.time}
             Type: ${activity.type}
             Elevation Gain: ${activity.elevationGain}m
-            Average Speed: ${activity.averageSpeed}km/h`
+            Average Speed: ${activity.averageSpeed}km/h
+            Activity Description: ${activity.description || 'No description provided'}`
         }
       ],
       model: "gpt-3.5-turbo",
@@ -129,11 +135,27 @@ export const generateMemeImage = async (imagePath, text) => {
 
 // Helper function to format time
 const formatTime = (seconds) => {
+  if (!seconds) return '0h 0m 0s';
+  
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const secs = seconds % 60;
   
   return `${hours}h ${minutes}m ${secs}s`;
+};
+
+// Add this debug function
+const logActivityData = (activity, stage) => {
+  console.log(`\n=== Activity Data at ${stage} ===`);
+  console.log('Raw activity object:', activity);
+  console.log('Individual fields:');
+  console.log('Distance:', activity.distance, 'km');
+  console.log('Time:', activity.time);
+  console.log('Type:', activity.type);
+  console.log('Elevation Gain:', activity.elevationGain, 'm');
+  console.log('Average Speed:', activity.averageSpeed, 'km/h');
+  console.log('Description:', activity.description);
+  console.log('========================\n');
 };
 
 export const generateMemeForActivity = async (activity) => {
@@ -143,31 +165,53 @@ export const generateMemeForActivity = async (activity) => {
   });
 
   try {
+    console.log('Raw activity data received:', activity);
+
+    // Format the activity data properly using the raw values
+    const formattedActivity = {
+      // Check if distance needs conversion from meters to km
+      distance: activity.distance >= 100 
+        ? (activity.distance / 1000).toFixed(2)  // Convert from meters
+        : Number(activity.distance).toFixed(2),   // Already in km, just format
+      time: formatTime(activity.moving_time),
+      type: activity.sport_type || activity.type || 'Unknown',
+      elevationGain: Math.round(activity.total_elevation_gain || 0),
+      averageSpeed: activity.average_speed ? (activity.average_speed * 3.6).toFixed(1) : 0,
+      description: activity.name || 'No description'
+    };
+
+    // Log formatted activity data
+    logActivityData(formattedActivity, 'After Formatting');
+
     // Generate meme text
     const completion = await openai.chat.completions.create({
       messages: [
         {
           role: "system",
-          content: "You are a witty meme generator that creates funny, sarcastic, and trending captions for duck photos based on workout data."
+          content: "You are a witty meme generator that creates funny, sarcastic, and trending captions for duck photos based on workout data. Feel free to round or approximate the numbers from the workout data to make the caption flow better. Consider any weather conditions, feelings, or context from the activity description."
         },
         {
           role: "user",
           content: `Create a funny, sarcastic meme caption for a duck photo based on this workout data: 
-            Distance: ${activity.distance}km
-            Time: ${activity.time}
-            Type: ${activity.type}
-            Elevation Gain: ${activity.elevationGain}m
-            Average Speed: ${activity.averageSpeed}km/h`
+            Distance: ${formattedActivity.distance}km
+            Time: ${formattedActivity.time}
+            Type: ${formattedActivity.type}
+            Elevation Gain: ${formattedActivity.elevationGain}m
+            Average Speed: ${formattedActivity.averageSpeed}km/h
+            Activity Description: ${formattedActivity.description}`
         }
       ],
       model: "gpt-3.5-turbo",
       temperature: 0.8,
       max_tokens: 60
     });
-    const memeText = completion.choices[0].message.content;
 
-    // Select duck photo
-    const duckPhoto = await selectDuckPhoto(activity, openai);
+    const memeText = completion.choices[0].message.content;
+    console.log('Generated Meme Text:', memeText);
+
+    // Select duck photo using the properly formatted data
+    const duckPhoto = await selectDuckPhoto(formattedActivity, openai);
+    console.log('Selected Duck Photo:', duckPhoto);
 
     // Generate final meme
     const memeUrl = await generateMemeImage(duckPhoto, memeText);

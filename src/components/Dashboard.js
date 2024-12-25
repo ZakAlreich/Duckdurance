@@ -92,9 +92,6 @@ const Dashboard = () => {
   }, [activities, addMeme, generatedMemes]);
 
   const handleGenerateMeme = async (activityId) => {
-    // Prevent generating if already in progress
-    if (generatingMemes[activityId]) return;
-
     try {
       // Set generating state
       setGeneratingMemes(prev => ({ ...prev, [activityId]: true }));
@@ -103,14 +100,17 @@ const Dashboard = () => {
       const activity = activities.find(a => a.id === activityId);
       if (!activity) throw new Error('Activity not found');
 
-      // Generate meme in background
-      const memeUrl = await generateMemeForActivity(activity);
+      // Format distance properly before passing to meme generator
+      const formattedDistance = (activity.distance / 1000).toFixed(2); // Convert to km and format to 2 decimal places
+      const memeUrl = await generateMemeForActivity({
+        ...activity,
+        distance: formattedDistance // Pass formatted distance
+      });
       addMeme(activityId, memeUrl);
 
     } catch (error) {
       console.error('Error generating meme:', error);
     } finally {
-      // Clear generating state
       setGeneratingMemes(prev => ({ ...prev, [activityId]: false }));
     }
   };
