@@ -8,24 +8,22 @@ const StravaCallback = () => {
 
   useEffect(() => {
     const handleCallback = async () => {
-      const params = new URLSearchParams(location.search);
-      const code = params.get('code');
-      const error = params.get('error');
-      
-      if (error) {
-        setStatus(`Authorization failed: ${error}`);
-        setTimeout(() => navigate('/'), 3000);
-        return;
-      }
-
-      if (!code) {
-        setStatus('No authorization code received');
-        setTimeout(() => navigate('/'), 2000);
-        return;
-      }
-
       try {
-        const tokenUrl = 'https://www.strava.com/oauth/token';
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+        const scope = urlParams.get('scope');
+        
+        console.log('🔑 Auth callback received:', {
+          code: code?.substring(0, 10) + '...',
+          scope,
+          allParams: Object.fromEntries(urlParams)
+        });
+
+        if (!code) {
+          throw new Error('No authorization code received');
+        }
+
+        // Token exchange request
         const tokenData = {
           client_id: process.env.REACT_APP_STRAVA_CLIENT_ID,
           client_secret: process.env.REACT_APP_STRAVA_CLIENT_SECRET,
@@ -33,9 +31,7 @@ const StravaCallback = () => {
           grant_type: 'authorization_code'
         };
 
-        console.log('Sending token request with data:', tokenData); // Debug log
-
-        const response = await fetch(tokenUrl, {
+        const tokenResponse = await fetch('https://www.strava.com/oauth/token', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -43,19 +39,35 @@ const StravaCallback = () => {
           body: JSON.stringify(tokenData)
         });
 
-        const data = await response.json();
-        console.log('Token response:', data); // Debug log
+        const data = await tokenResponse.json();
 
-        if (response.ok) {
-          localStorage.setItem('strava_access_token', data.access_token);
-          navigate('/dashboard');
-        } else {
-          throw new Error(data.message || 'Failed to get access token');
+        if (!tokenResponse.ok) {
+          console.error('❌ Token exchange failed:', data);
+          throw new Error(data.message || 'Token exchange failed');
         }
+
+        // Parse scopes from the URL-encoded string
+        const scopes = scope ? scope.split(',') : [];
+        console.log('📝 Received scopes:', scopes);
+
+        // Store tokens and parsed scopes
+        localStorage.setItem('strava_access_token', data.access_token);
+        localStorage.setItem('strava_refresh_token', data.refresh_token);
+        localStorage.setItem('strava_token_expiry', data.expires_at);
+        localStorage.setItem('strava_scopes', JSON.stringify(scopes)); // Store as JSON
+
+        console.log('✅ Token exchange successful:', {
+          access_token: data.access_token?.substring(0, 10) + '...',
+          token_type: data.token_type,
+          expires_at: new Date(data.expires_at * 1000).toLocaleString(),
+          scopes: scopes
+        });
+
+        // Redirect to dashboard
+        navigate('/dashboard');
       } catch (error) {
-        console.error('Error details:', error);
-        setStatus(`Authentication failed: ${error.message}`);
-        setTimeout(() => navigate('/'), 3000);
+        console.error('❌ Error in callback:', error);
+        navigate('/');
       }
     };
 

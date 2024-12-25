@@ -115,6 +115,50 @@ const Dashboard = () => {
     }
   };
 
+  const handleLogout = () => {
+    // Clear all Strava-related items from localStorage
+    localStorage.removeItem('strava_access_token');
+    localStorage.removeItem('strava_refresh_token');
+    localStorage.removeItem('strava_token_expiry');
+    localStorage.removeItem('strava_scopes');
+    
+    // Redirect to home page
+    navigate('/');
+  };
+
+  const handleInstagramShare = async (memeUrl, activity) => {
+    try {
+      // Create blob from meme URL
+      const response = await fetch(memeUrl);
+      const blob = await response.blob();
+      
+      // Create file from blob
+      const file = new File([blob], 'duck-motivation.jpg', { type: 'image/jpeg' });
+      
+      // Check if Web Share API supports sharing files
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: 'Duck Motivation',
+          text: `Check out my ${activity.type}: ${activity.name} 🦆`
+        });
+        console.log('✅ Shared to Instagram successfully');
+      } else {
+        // Fallback: download the image
+        const a = document.createElement('a');
+        a.href = memeUrl;
+        a.download = 'duck-motivation.jpg';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        alert('Image downloaded! You can now share it manually to Instagram');
+      }
+    } catch (error) {
+      console.error('❌ Error sharing to Instagram:', error);
+      alert('Could not share to Instagram. Try downloading and sharing manually.');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
@@ -125,77 +169,106 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-gray-100 p-8">
-      <h1 className="text-3xl font-bold mb-6 text-center">
-        🦆 Duck-tivities Dashboard 🦆
-      </h1>
-      <div className="grid gap-6 max-w-4xl mx-auto">
-        {activities.map(activity => {
-          const duckMotivation = getDuckMotivation(activity);
-          return (
-            <div key={activity.id} className="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h2 className="font-bold text-xl mb-2">{activity.name}</h2>
-                  {activity.description && (
-                    <div className="strava-description">
-                      <p>{activity.description}</p>
+      <div className="max-w-4xl mx-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-3xl font-bold">
+            🦆 Duck-tivities Dashboard 🦆
+          </h1>
+          <button
+            onClick={handleLogout}
+            className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition-colors"
+          >
+            Logout from Strava
+          </button>
+        </div>
+        
+        <div className="grid gap-6">
+          {activities.map(activity => {
+            const duckMotivation = getDuckMotivation(activity);
+            return (
+              <div key={activity.id} className="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h2 className="font-bold text-xl mb-2">{activity.name}</h2>
+                    {activity.description && (
+                      <div className="strava-description">
+                        <p>{activity.description}</p>
+                      </div>
+                    )}
+                    <div className="activity-stats">
+                      <p>
+                        <strong>Distance:</strong> {(activity.distance / 1000).toFixed(2)}km
+                      </p>
+                      <p>
+                        <strong>Time:</strong> {formatTime(activity.moving_time)}
+                      </p>
+                      <p>
+                        <strong>Elevation:</strong> {Math.round(activity.total_elevation_gain)}m
+                      </p>
+                      <p>
+                        <strong>Avg Speed:</strong> {((activity.distance / 1000) / (activity.moving_time / 3600)).toFixed(1)}km/h
+                      </p>
                     </div>
-                  )}
-                  <div className="activity-stats">
-                    <p>
-                      <strong>Distance:</strong> {(activity.distance / 1000).toFixed(2)}km
-                    </p>
-                    <p>
-                      <strong>Time:</strong> {formatTime(activity.moving_time)}
-                    </p>
-                    <p>
-                      <strong>Elevation:</strong> {Math.round(activity.total_elevation_gain)}m
-                    </p>
-                    <p>
-                      <strong>Avg Speed:</strong> {((activity.distance / 1000) / (activity.moving_time / 3600)).toFixed(1)}km/h
-                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-4xl">🦆</span>
                   </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-4xl">🦆</span>
+                
+                <div className="mt-4 bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                  <p className="text-lg font-medium text-yellow-800">
+                    {duckMotivation.message}
+                  </p>
+                  <p className="text-sm text-yellow-600 mt-2 italic">
+                    {duckMotivation.memeText}
+                  </p>
                 </div>
+                {generatedMemes[activity.id] && (
+                  <div className="generated-meme mt-4">
+                    <img 
+                      src={generatedMemes[activity.id]} 
+                      alt="Generated meme"
+                      className="activity-meme rounded-lg shadow-md max-w-full"
+                    />
+                    <div className="flex gap-2 mt-2">
+                      <button 
+                        onClick={() => handleGenerateMeme(activity.id)}
+                        className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition-colors flex-1"
+                        disabled={generatingMemes[activity.id]}
+                      >
+                        {generatingMemes[activity.id] ? 'Generating...' : 'Regenerate Meme'}
+                      </button>
+                      <button
+                        onClick={() => handleInstagramShare(generatedMemes[activity.id], activity)}
+                        className="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-4 py-2 rounded hover:from-purple-600 hover:to-pink-600 transition-colors flex-1"
+                      >
+                        Share to Instagram
+                      </button>
+                    </div>
+                  </div>
+                )}
+                
+                {!generatedMemes[activity.id] && (
+                  <button 
+                    onClick={() => handleGenerateMeme(activity.id)}
+                    className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition-colors mt-4 w-full"
+                    disabled={generatingMemes[activity.id]}
+                  >
+                    {generatingMemes[activity.id] ? 'Generating...' : 'Generate Duck Meme'}
+                  </button>
+                )}
               </div>
-              
-              <div className="mt-4 bg-yellow-50 p-4 rounded-lg border border-yellow-200">
-                <p className="text-lg font-medium text-yellow-800">
-                  {duckMotivation.message}
-                </p>
-                <p className="text-sm text-yellow-600 mt-2 italic">
-                  {duckMotivation.memeText}
-                </p>
-              </div>
-              {generatedMemes[activity.id] && (
-                <div className="generated-meme">
-                  <img 
-                    src={generatedMemes[activity.id]} 
-                    alt="Generated meme"
-                    className="activity-meme"
-                  />
-                </div>
-              )}
-              <button 
-                onClick={() => handleGenerateMeme(activity.id)}
-                className="meme-button"
-                disabled={generatingMemes[activity.id]}
-              >
-                {generatingMemes[activity.id] ? 'Generating...' : 'Generate Duck Meme'}
-              </button>
-            </div>
-          );
-        })}
-      </div>
-
-      {activities.length === 0 && (
-        <div className="text-center mt-10">
-          <p className="text-xl">No activities yet? Don't worry!</p>
-          <p className="text-2xl mt-4">🦆 Even ducks have to start somewhere! 🦆</p>
+            );
+          })}
         </div>
-      )}
+
+        {activities.length === 0 && (
+          <div className="text-center mt-10">
+            <p className="text-xl">No activities yet? Don't worry!</p>
+            <p className="text-2xl mt-4">🦆 Even ducks have to start somewhere! 🦆</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

@@ -4,25 +4,23 @@ const StravaAuth = () => {
   const handleAuth = () => {
     try {
       const clientId = process.env.REACT_APP_STRAVA_CLIENT_ID;
-      const redirectUri = encodeURIComponent(process.env.REACT_APP_REDIRECT_URI);
+      const redirectUri = process.env.REACT_APP_REDIRECT_URI;
       
-      // More detailed debug logging
-      console.log('Environment variables:', {
-        REACT_APP_STRAVA_CLIENT_ID: process.env.REACT_APP_STRAVA_CLIENT_ID,
-        REACT_APP_REDIRECT_URI: process.env.REACT_APP_REDIRECT_URI
-      });
+      // Define all required scopes
+      const scopes = [
+        'profile:read_all',
+        'activity:read_all',
+        'activity:write'  // This is crucial for uploads
+      ].join(',');
       
-      if (!clientId) {
-        alert('Configuration error: Missing Strava client ID');
-        return;
-      }
-
-      const scope = 'read,activity:read_all';
-      const responseType = 'code';
-
-      const authUrl = `https://www.strava.com/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=${responseType}&scope=${scope}&approval_prompt=force`;
+      const authUrl = `https://www.strava.com/oauth/authorize` +
+        `?client_id=${clientId}` +
+        `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+        `&response_type=code` +
+        `&approval_prompt=force` +
+        `&scope=${encodeURIComponent(scopes)}`;
       
-      console.log('Full auth URL:', authUrl);
+      console.log('Auth URL:', authUrl);
       window.location.href = authUrl;
     } catch (error) {
       console.error('Auth error:', error);

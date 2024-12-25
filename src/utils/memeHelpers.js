@@ -68,9 +68,17 @@ export const selectDuckPhoto = async (activity, openai) => {
 
     const mood = completion.choices[0].message.content.toLowerCase().trim();
     console.log('Selected mood:', mood);
-    console.log('Selected photo path:', duckPhotos[mood] || duckPhotos.default);
-
-    return duckPhotos[mood] || duckPhotos.default;
+    const selectedPhoto = duckPhotos[mood] || duckPhotos.default;
+    
+    // Verify image exists
+    const imageExists = await verifyImagePath(selectedPhoto);
+    if (!imageExists) {
+      console.warn('⚠️ Selected image not found, falling back to default');
+      return duckPhotos.default;
+    }
+    
+    console.log('Selected photo path:', selectedPhoto);
+    return selectedPhoto;
   } catch (error) {
     console.error('Error selecting duck photo:', error);
     return duckPhotos.default;
@@ -78,55 +86,95 @@ export const selectDuckPhoto = async (activity, openai) => {
 };
 
 // Generate meme by combining photo and text
-export const generateMemeImage = async (imagePath, text) => {
+export const generateMemeImage = async (imagePath, text, activity) => {
   try {
-    // Load the image
-    const image = await loadImage(imagePath);
-    
-    // Create canvas with image dimensions
-    const canvas = createCanvas(image.width, image.height);
+    const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     
-    // Draw image
+    // Load the image
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = reject;
+      image.src = imagePath;
+    });
+
+    // Set canvas size to match image
+    canvas.width = image.width;
+    canvas.height = image.height;
+
+    // Draw the image
     ctx.drawImage(image, 0, 0);
-    
-    // Configure text style
+
+    // Add stats text with better contrast
     ctx.fillStyle = 'white';
+    ctx.font = '14px Arial';
+    ctx.textAlign = 'left';
+    ctx.lineWidth = 2;
     ctx.strokeStyle = 'black';
-    ctx.lineWidth = 5;
-    ctx.textAlign = 'center';
-    ctx.font = '48px Impact';
+
+    // Stats with outline for better readability
+    const stats = [
+      `${getActivityEmoji(activity.type)} ${activity.type}`,
+      `📏 ${activity.distance}km`,
+      `⏱️ ${activity.time}`,
+      `⚡ ${activity.averageSpeed}km/h`
+    ];
     
-    // Split text into multiple lines if needed
+    stats.forEach((stat, index) => {
+      const y = 20 + (index * 20);
+      ctx.strokeText(stat, 15, y);
+      ctx.fillText(stat, 15, y);
+    });
+
+    // Add main meme text
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 36px Impact';  // Increased size for better readability
+    ctx.textAlign = 'center';
+    ctx.strokeStyle = 'black';
+    ctx.lineWidth = 3;  // Thicker outline
+    
+    // Break text into lines with better word wrapping
     const words = text.split(' ');
-    const lines = [];
+    let lines = [];
     let currentLine = words[0];
+    const maxWidth = canvas.width - 60;  // Better margin
 
     for (let i = 1; i < words.length; i++) {
-      const word = words[i];
-      const width = ctx.measureText(currentLine + " " + word).width;
-      if (width < image.width - 20) {
-        currentLine += " " + word;
-      } else {
+      const testLine = currentLine + ' ' + words[i];
+      const metrics = ctx.measureText(testLine);
+      if (metrics.width > maxWidth) {
         lines.push(currentLine);
-        currentLine = word;
+        currentLine = words[i];
+      } else {
+        currentLine = testLine;
       }
     }
     lines.push(currentLine);
 
-    // Draw text
-    const lineHeight = 60;
-    const totalHeight = lineHeight * lines.length;
-    const startY = image.height - totalHeight - 20;
+    // Draw text lines with better positioning
+    const lineHeight = 40;  // Increased line height
+    const totalTextHeight = lineHeight * lines.length;
+    let y = canvas.height - totalTextHeight - 30;  // More bottom margin
 
-    lines.forEach((line, index) => {
-      const y = startY + (index * lineHeight);
-      ctx.strokeText(line, image.width / 2, y);
-      ctx.fillText(line, image.width / 2, y);
+    lines.forEach(line => {
+      ctx.strokeText(line, canvas.width / 2, y);
+      ctx.fillText(line, canvas.width / 2, y);
+      y += lineHeight;
     });
 
-    // Convert canvas to data URL
-    return canvas.toDataURL('image/jpeg');
+    // Add Strava attribution with better contrast
+    ctx.font = '14px Arial';
+    ctx.textAlign = 'right';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'black';
+    ctx.strokeText('Stats from Strava', canvas.width - 10, canvas.height - 10);
+    ctx.fillStyle = '#FC4C02';  // Strava orange
+    ctx.fillText('Stats from Strava', canvas.width - 10, canvas.height - 10);
+
+    return canvas.toDataURL('image/jpeg', 0.95);  // Increased quality
   } catch (error) {
     console.error('Error generating meme:', error);
     throw error;
@@ -214,46 +262,176 @@ export const generateMemeForActivity = async (activity) => {
     console.log('Selected Duck Photo:', duckPhoto);
 
     // Generate final meme
-    const memeUrl = await generateMemeImage(duckPhoto, memeText);
-    return memeUrl;
+    const memeUrl = await generateMemeImage(duckPhoto, memeText, formattedActivity);
+    
+    // Add explicit upload attempt with logging
+    console.log('Checking activity ID for Strava upload:', activity.id);
+    if (activity.id) {
+      try {
+        console.log('Starting Strava upload process...');
+        await uploadMemeToStrava(memeUrl, activity.id);
+        console.log('✅ Successfully uploaded meme to Strava activity:', activity.id);
+      } catch (uploadError) {
+        console.error('❌ Strava upload failed:', uploadError);
+      }
+    } else {
+      console.warn('⚠️ No activity ID found, skipping Strava upload');
+    }
 
+    return memeUrl;
   } catch (error) {
-    console.error('Error generating meme:', error);
+    console.error('Error in meme generation process:', error);
     throw error;
   }
 };
 
-export const uploadMemeToStrava = async (memeUrl, activityId) => {
+// Add this new function to check scopes
+const checkStravaScopes = async () => {
   try {
     const accessToken = localStorage.getItem('strava_access_token');
+    if (!accessToken) {
+      console.error('❌ No access token found');
+      return null;
+    }
+
+    const response = await fetch('https://www.strava.com/api/v3/athlete', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch athlete data');
+    }
+
+    const data = await response.json();
     
-    // First convert the canvas data URL to a Blob
+    // Log the full token info
+    console.log('🔑 Token Permissions:', {
+      token: accessToken.substring(0, 10) + '...',
+      scopes: data.scopes || 'No scopes found',
+    });
+
+    return data.scopes;
+  } catch (error) {
+    console.error('❌ Error checking Strava scopes:', error);
+    return null;
+  }
+};
+
+// Modify your upload function to check scopes first
+export const uploadMemeToStrava = async (memeUrl, activityId) => {
+  try {
+    // Check scopes before attempting upload
+    console.log('Checking Strava permissions...');
+    const scopes = await checkStravaScopes();
+    
+    if (!scopes || !scopes.includes('activity:write')) {
+      console.error('❌ Missing required write permission!');
+      console.log('Current scopes:', scopes);
+      throw new Error('Missing required write permission. Please re-authenticate.');
+    }
+    console.log('✅ Have write permission');
+
+    console.log('Starting Strava upload with:', { activityId });
+    
+    const accessToken = localStorage.getItem('strava_access_token');
+    if (!accessToken) {
+      console.error('❌ No Strava access token found in localStorage');
+      throw new Error('No Strava access token found');
+    }
+    console.log('✅ Found Strava access token');
+
+    // First verify the activity exists
+    console.log('Verifying activity exists...');
+    const activityResponse = await fetch(
+      `https://www.strava.com/api/v3/activities/${activityId}`,
+      {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      }
+    );
+
+    if (!activityResponse.ok) {
+      console.error('❌ Activity not found or not accessible');
+      throw new Error('Activity not found or not accessible');
+    }
+    console.log('✅ Activity verified');
+
+    // Convert the canvas data URL to a Blob
+    console.log('Converting meme to blob...');
     const response = await fetch(memeUrl);
     const blob = await response.blob();
+    console.log('✅ Converted meme to blob:', blob.size, 'bytes');
     
     // Create FormData object
     const formData = new FormData();
     formData.append('file', blob, 'duck_meme.jpg');
-    formData.append('activity_id', activityId);
-
-    // Upload to Strava
-    const uploadResponse = await fetch('https://www.strava.com/api/v3/uploads', {
+    
+    // Use the correct endpoint for photo uploads
+    const uploadUrl = `https://www.strava.com/api/v3/uploads`;
+    
+    console.log('Sending upload request to Strava API...');
+    const uploadResponse = await fetch(uploadUrl, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${accessToken}`
+        'Authorization': `Bearer ${accessToken}`,
       },
       body: formData
     });
 
+    console.log('Upload response status:', uploadResponse.status);
+    const responseText = await uploadResponse.text();
+    console.log('Upload response text:', responseText);
+
     if (!uploadResponse.ok) {
-      throw new Error('Failed to upload to Strava');
+      console.error('❌ Upload failed with status:', uploadResponse.status);
+      throw new Error(`Strava upload failed: ${responseText}`);
     }
 
-    const result = await uploadResponse.json();
-    console.log('Upload successful:', result);
-    return result;
+    console.log('✅ Strava upload successful');
+    return responseText ? JSON.parse(responseText) : null;
   } catch (error) {
-    console.error('Error uploading to Strava:', error);
+    console.error('❌ Error in uploadMemeToStrava:', error);
     throw error;
   }
+};
+
+// Update the image path to use the correct public URL
+const getImagePath = (photoPath) => {
+  // Remove /archive/Duck/test/ from the path
+  const filename = photoPath.split('/').pop();
+  return `/images/${filename}`; // Assuming images are in public/images/
+};
+
+const verifyImagePath = async (path) => {
+  try {
+    const response = await fetch(path);
+    if (!response.ok) {
+      console.error(`❌ Image not found at ${path}`, response.status);
+      return false;
+    }
+    console.log(`✅ Image verified at ${path}`);
+    return true;
+  } catch (error) {
+    console.error(`❌ Error checking image at ${path}:`, error);
+    return false;
+  }
+};
+
+// Add this new function to get activity emoji
+const getActivityEmoji = (activityType) => {
+  const emojiMap = {
+    'Run': '🏃',
+    'Ride': '🚴',
+    'Swim': '🏊',
+    'Walk': '🚶',
+    'Hike': '🥾',
+    'Workout': '💪',
+    'WeightTraining': '🏋️',
+    'Yoga': '🧘',
+    'CrossFit': '🏋️‍♂️',
+    'Rowing': '🚣',
+    // Add more activity types as needed
+  };
+  return emojiMap[activityType] || '🏃'; // Default to running emoji
 };
