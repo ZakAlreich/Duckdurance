@@ -36,11 +36,31 @@ export const fetchActivityData = async (activityId) => {
 // Select appropriate duck photo based on activity metrics
 export const selectDuckPhoto = async (activity, openai) => {
   const duckPhotos = {
-    tired: '/archive/Duck/test/images/duck23.jpeg',
-    excited: '/archive/Duck/test/images/duck87.jpeg',
-    proud: '/archive/Duck/test/images/duck88.jpeg',
-    energetic: '/archive/Duck/test/images/duck89.jpeg',
-    default: '/archive/Duck/test/images/duck76.jpeg'
+    tired: [
+      '/archive/Duck/test/images/duck23.jpeg',
+      '/archive/Duck/test/images/duck88.jpeg',
+      '/archive/Duck/test/images/duck91.jpeg'
+    ],
+    excited: [
+      '/archive/Duck/test/images/duck87.jpeg',
+      '/archive/Duck/test/images/duck92.jpeg',
+      '/archive/Duck/test/images/duck99.jpeg'
+    ],
+    proud: [
+      '/archive/Duck/test/images/duck0.jpeg',
+      '/archive/Duck/test/images/duck1.jpeg',
+      '/archive/Duck/test/images/duck2.jpeg'
+    ],
+    energetic: [
+      '/archive/Duck/test/images/duck3.jpeg',
+      '/archive/Duck/test/images/duck4.jpeg',
+      '/archive/Duck/test/images/duck5.jpeg'
+    ],
+    default: [
+      '/archive/Duck/test/images/duck6.jpeg',
+      '/archive/Duck/test/images/duck7.jpeg',
+      '/archive/Duck/test/images/duck8.jpeg'
+    ]
   };
 
   try {
@@ -68,20 +88,25 @@ export const selectDuckPhoto = async (activity, openai) => {
 
     const mood = completion.choices[0].message.content.toLowerCase().trim();
     console.log('Selected mood:', mood);
-    const selectedPhoto = duckPhotos[mood] || duckPhotos.default;
+    
+    // Get array of photos for the mood or default
+    const photoArray = duckPhotos[mood] || duckPhotos.default;
+    
+    // Randomly select a photo from the array
+    const selectedPhoto = photoArray[Math.floor(Math.random() * photoArray.length)];
     
     // Verify image exists
     const imageExists = await verifyImagePath(selectedPhoto);
     if (!imageExists) {
       console.warn('⚠️ Selected image not found, falling back to default');
-      return duckPhotos.default;
+      return duckPhotos.default[0]; // Return first default photo
     }
     
     console.log('Selected photo path:', selectedPhoto);
     return selectedPhoto;
   } catch (error) {
     console.error('Error selecting duck photo:', error);
-    return duckPhotos.default;
+    return duckPhotos.default[0]; // Return first default photo
   }
 };
 
@@ -90,6 +115,10 @@ export const generateMemeImage = async (imagePath, text, activity) => {
   try {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
+    
+    // Enable text anti-aliasing
+    ctx.imageSmoothingEnabled = true;
+    ctx.textRendering = 'optimizeLegibility';
     
     // Load the image
     const image = new Image();
@@ -108,14 +137,36 @@ export const generateMemeImage = async (imagePath, text, activity) => {
     // Draw the image
     ctx.drawImage(image, 0, 0);
 
-    // Add stats text with better contrast
+    // Add Duckdurance logo
+    ctx.font = 'bold 24px Arial';
+    ctx.textAlign = 'right';
+    ctx.lineWidth = 3;
+    
+    // Position in top right with padding
+    const logoX = canvas.width - 20;
+    const logoY = 35;
+    
+    // Add duck emoji and text with shadow
+    const logoText = '🦆 Duckdurance';
+    
+    // Add shadow effect
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillText(logoText, logoX + 2, logoY + 2);
+    
+    // Add main text
     ctx.fillStyle = 'white';
-    ctx.font = '14px Arial';
+    ctx.strokeStyle = 'black';
+    ctx.strokeText(logoText, logoX, logoY);
+    ctx.fillText(logoText, logoX, logoY);
+
+    // Improved stats text rendering
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 16px Arial'; // Increased font size
     ctx.textAlign = 'left';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3; // Increased outline thickness
     ctx.strokeStyle = 'black';
 
-    // Stats with outline for better readability
+    // Stats with thicker outline
     const stats = [
       `${getActivityEmoji(activity.type)} ${activity.type}`,
       `📏 ${activity.distance}km`,
@@ -124,18 +175,18 @@ export const generateMemeImage = async (imagePath, text, activity) => {
     ];
     
     stats.forEach((stat, index) => {
-      const y = 20 + (index * 20);
-      ctx.strokeText(stat, 15, y);
-      ctx.fillText(stat, 15, y);
+      const y = 25 + (index * 25); // Increased spacing
+      ctx.strokeText(stat, 20, y);
+      ctx.fillText(stat, 20, y);
     });
 
-    // Add main meme text
+    // Improved meme text rendering
     ctx.fillStyle = 'white';
-    ctx.font = 'bold 36px Impact';  // Increased size for better readability
+    ctx.font = 'bold 48px Impact'; // Increased size further
     ctx.textAlign = 'center';
     ctx.strokeStyle = 'black';
-    ctx.lineWidth = 3;  // Thicker outline
-    
+    ctx.lineWidth = 4; // Even thicker outline for main text
+
     // Break text into lines with better word wrapping
     const words = text.split(' ');
     let lines = [];
@@ -154,10 +205,10 @@ export const generateMemeImage = async (imagePath, text, activity) => {
     }
     lines.push(currentLine);
 
-    // Draw text lines with better positioning
-    const lineHeight = 40;  // Increased line height
+    // Draw text lines with increased spacing
+    const lineHeight = 52; // Increased line height
     const totalTextHeight = lineHeight * lines.length;
-    let y = canvas.height - totalTextHeight - 30;  // More bottom margin
+    let y = canvas.height - totalTextHeight - 40;
 
     lines.forEach(line => {
       ctx.strokeText(line, canvas.width / 2, y);
@@ -165,16 +216,16 @@ export const generateMemeImage = async (imagePath, text, activity) => {
       y += lineHeight;
     });
 
-    // Add Strava attribution with better contrast
-    ctx.font = '14px Arial';
+    // Improved Strava attribution
+    ctx.font = 'bold 16px Arial'; // Made attribution text bold
     ctx.textAlign = 'right';
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'black';
-    ctx.strokeText('Stats from Strava', canvas.width - 10, canvas.height - 10);
-    ctx.fillStyle = '#FC4C02';  // Strava orange
-    ctx.fillText('Stats from Strava', canvas.width - 10, canvas.height - 10);
+    ctx.strokeText('Stats from Strava', canvas.width - 15, canvas.height - 15);
+    ctx.fillStyle = '#FC4C02';
+    ctx.fillText('Stats from Strava', canvas.width - 15, canvas.height - 15);
 
-    return canvas.toDataURL('image/jpeg', 0.95);  // Increased quality
+    return canvas.toDataURL('image/jpeg', 1.0); // Maximum quality
   } catch (error) {
     console.error('Error generating meme:', error);
     throw error;
